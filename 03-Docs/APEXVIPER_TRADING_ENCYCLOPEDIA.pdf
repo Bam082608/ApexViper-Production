@@ -1,0 +1,118 @@
+%PDF-1.4
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Page
+/Parent 2 0 R
+/Resources <<
+/Font <<
+/F1 <<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+>>
+>>
+/MediaBox [0 0 612 792]
+/Contents 4 0 R
+>>
+endobj
+
+4 0 obj
+<<
+/Length 2800
+>>
+stream
+BT
+/F1 24 Tf
+50 750 Td
+(APEXVIPER TRADING ENCYCLOPEDIA) Tj
+0 -40 Td
+/F1 12 Tf
+(Trading Methodology and Rules Documentation) Tj
+0 -60 Td
+/F1 14 Tf
+(CONTENTS:) Tj
+0 -25 Td
+/F1 11 Tf
+(1. HMS Core v2 Overview) Tj
+0 -20 Td
+(2. Signal Variants \(MAIN, VAR-A, VAR-B, VAR-C, VAR-D\)) Tj
+0 -20 Td
+(3. Trading Rules and Methodology) Tj
+0 -20 Td
+(4. Risk Management) Tj
+0 -20 Td
+(5. Position Sizing) Tj
+0 -20 Td
+(6. Market Analysis Framework) Tj
+0 -40 Td
+/F1 14 Tf
+(HMS CORE V2:) Tj
+0 -25 Td
+/F1 11 Tf
+(- Health Monitoring System) Tj
+0 -20 Td
+(- CVD \(Cumulative Volume Delta\) Analysis) Tj
+0 -20 Td
+(- BOS \(Break of Structure\) Detection) Tj
+0 -20 Td
+(- CHoCH \(Change of Character\) Detection) Tj
+0 -20 Td
+(- Regime Detection) Tj
+0 -20 Td
+(- Coherence Measurement) Tj
+0 -40 Td
+/F1 14 Tf
+(SIGNAL VARIANTS:) Tj
+0 -25 Td
+/F1 11 Tf
+(MAIN \(Green\): Full confluence) Tj
+0 -15 Td
+(  Health + Coherence + Regime + CHoCH + CVD) Tj
+0 -20 Td
+(VAR-A \(Blue\): Drop CVD requirement) Tj
+0 -20 Td
+(VAR-B \(Yellow\): Drop Health requirement) Tj
+0 -20 Td
+(VAR-C \(Orange\): Relaxed POI filtering) Tj
+0 -20 Td
+(VAR-D \(Red\): Simple regime detection with trend filter) Tj
+0 -40 Td
+/F1 10 Tf
+(This is the ApexViper Trading Encyclopedia.) Tj
+0 -15 Td
+(For detailed methodology, refer to the complete documentation.) Tj
+ET
+endstream
+endobj
+
+xref
+0 5
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000317 00000 n 
+trailer
+<<
+/Size 5
+/Root 1 0 R
+>>
+startxref
+3169
+%%EOF
