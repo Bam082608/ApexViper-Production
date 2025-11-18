@@ -1,0 +1,179 @@
+//@version=6
+indicator("ApexViper_HMS_Variants_Complete", overlay=true, max_labels_count=500)
+
+import Bam404/ApexViper_HMS_Core_Complete/1 as HMS
+
+i_runMAIN = input.bool(true, "Run MAIN (Control)", group="Variants")
+i_runVarA = input.bool(true, "Run Variant A (Drop CVD)", group="Variants")
+i_runVarB = input.bool(true, "Run Variant B (Drop Health)", group="Variants")
+i_runVarC = input.bool(true, "Run Variant C (Relax POI)", group="Variants")
+i_runVarD = input.bool(true, "Run Variant D (Simple Regime)", group="Variants")
+i_labelSpacing = input.int(3, "Min Bars Between Labels (Per Variant)", minval=0, group="Variants")
+i_enableAlerts = input.bool(false, "Enable Alerts", group="Variants")
+
+var label_array = array.new<label>()
+var last_label_bars = array.new_int(5, -1)
+var int prevRegime = na
+
+f_variant_index(string variant) =>
+    int result = -1
+    if variant == "MAIN"
+        result := 0
+    else if variant == "VAR-A"
+        result := 1
+    else if variant == "VAR-B"
+        result := 2
+    else if variant == "VAR-C"
+        result := 3
+    else if variant == "VAR-D"
+        result := 4
+    result
+
+f_can_label(string variant) =>
+    int idx = f_variant_index(variant)
+    bool can_draw = false
+    if idx != -1
+        int last_bar = array.get(last_label_bars, idx)
+        can_draw := last_bar == -1 or bar_index - last_bar >= i_labelSpacing
+    can_draw
+
+f_register_label(string variant) =>
+    int idx = f_variant_index(variant)
+    if idx != -1
+        array.set(last_label_bars, idx, bar_index)
+
+f_draw_label(string variant, bool isBull, string labelText) =>
+    color label_color = color.gray
+    if variant == "MAIN"
+        label_color := color.green
+    else if variant == "VAR-A"
+        label_color := color.blue
+    else if variant == "VAR-B"
+        label_color := color.yellow
+    else if variant == "VAR-C"
+        label_color := color.orange
+    else if variant == "VAR-D"
+        label_color := color.red
+    
+    float y_pos = isBull ? low : high
+    label new_label = label.new(bar_index, y_pos, labelText, style=label.style_label_left, textcolor=color.white, color=label_color)
+    array.push(label_array, new_label)
+    if array.size(label_array) > 490
+        label.delete(array.shift(label_array))
+    f_register_label(variant)
+
+f_log_data(string variant, bool isBull, float price) =>
+    if i_enableAlerts
+        string signalType = isBull ? "LONG" : "SHORT"
+        string msg = str.format("{0} {1} @ {2,number,#.##}", variant, signalType, price)
+        alert(msg, alert.freq_once_per_bar)
+
+float atrRatio = ta.atr(14) / math.max(1.0, ta.sma(ta.atr(14), 50))
+float percentile_vol = ta.percentile_linear_interpolation(volume, 50, 35)
+float medianVolume = ta.median(volume, 20)
+float change10 = ta.change(close, 10)
+float sma50 = ta.sma(close, 50)
+float highest20_prev = ta.highest(high, 20)[1]
+float lowest20_prev = ta.lowest(low, 20)[1]
+
+bool trendFilterBull = close > sma50
+bool trendFilterBear = close < sma50
+
+[cvd_value, cvd_bull_div_f, cvd_bear_div_f] = HMS.f_calculate_cvd(20)
+
+if barstate.isconfirmed
+    
+    bool isValidVolatility = atrRatio < 2.5
+    bool isValidLiquidity = volume > percentile_vol and volume > medianVolume * 0.8
+    bool isValidTrend = change10 != 0
+    bool isNewsPeriod = false
+    bool isVoidSaturated = false
+    bool gammaRisk = false
+    float coherence_input = 0.7
+    int regime_enc = close > sma50 ? 1 : close < sma50 ? -1 : 0
+    int cycles = 0
+
+    HMS.HMSState hms = HMS.f_calculate_hms_state(isValidVolatility, isValidLiquidity, isValidTrend, isNewsPeriod, isVoidSaturated, gammaRisk, coherence_input, regime_enc, cycles)
+    HMS.POIData poi = HMS.f_find_last_poi(hms.regime)
+
+    bool cvd_bull_div = cvd_bull_div_f > 0.5
+    bool cvd_bear_div = cvd_bear_div_f > 0.5
+
+    string healthStr = HMS.f_decode_health(hms.health_state)
+    string regimeStr = HMS.f_decode_regime(hms.regime)
+    string cvd_status = cvd_bull_div ? "Bullish" : cvd_bear_div ? "Bearish" : "Neutral"
+
+    bool isHealthy = hms.health_state >= 2
+    bool isCoherent = hms.coherence >= 0.6
+    bool isValidRegime = hms.regime != 0
+
+    bool choch = not na(prevRegime) and ((prevRegime == 1 and hms.regime == -1) or (prevRegime == -1 and hms.regime == 1))
+    prevRegime := hms.regime
+
+    bool simpleRegimeBull = close > highest20_prev
+    bool simpleRegimeBear = close < lowest20_prev
+
+    bool main_bull_signal = isHealthy and isCoherent and isValidRegime and choch and cvd_bull_div
+    bool main_bear_signal = isHealthy and isCoherent and isValidRegime and choch and cvd_bear_div
+
+    bool varA_bull_signal = isHealthy and isCoherent and isValidRegime and choch
+    bool varA_bear_signal = isHealthy and isCoherent and isValidRegime and choch
+
+    bool varB_bull_signal = isValidRegime and choch and cvd_bull_div
+    bool varB_bear_signal = isValidRegime and choch and cvd_bear_div
+
+    bool varC_bull_signal = isHealthy and isCoherent and isValidRegime and choch and cvd_bull_div
+    bool varC_bear_signal = isHealthy and isCoherent and isValidRegime and choch and cvd_bear_div
+
+    bool varD_bull_signal = isHealthy and isCoherent and isValidRegime and simpleRegimeBull and cvd_bull_div and trendFilterBull
+    bool varD_bear_signal = isHealthy and isCoherent and isValidRegime and simpleRegimeBear and cvd_bear_div and trendFilterBear
+
+    if i_runMAIN and f_can_label("MAIN")
+        if main_bull_signal
+            string label_text = str.format("[MAIN] {0,number,#.##} | CVD: Bull", close)
+            f_draw_label("MAIN", true, label_text)
+            f_log_data("MAIN", true, close)
+        if main_bear_signal
+            string label_text = str.format("[MAIN] {0,number,#.##} | CVD: Bear", close)
+            f_draw_label("MAIN", false, label_text)
+            f_log_data("MAIN", false, close)
+
+    if i_runVarA and f_can_label("VAR-A")
+        if varA_bull_signal
+            string label_text = str.format("[VAR-A] {0,number,#.##} | No CVD", close)
+            f_draw_label("VAR-A", true, label_text)
+            f_log_data("VAR-A", true, close)
+        if varA_bear_signal
+            string label_text = str.format("[VAR-A] {0,number,#.##} | No CVD", close)
+            f_draw_label("VAR-A", false, label_text)
+            f_log_data("VAR-A", false, close)
+
+    if i_runVarB and f_can_label("VAR-B")
+        if varB_bull_signal
+            string label_text = str.format("[VAR-B] {0,number,#.##} | CVD: Bull", close)
+            f_draw_label("VAR-B", true, label_text)
+            f_log_data("VAR-B", true, close)
+        if varB_bear_signal
+            string label_text = str.format("[VAR-B] {0,number,#.##} | CVD: Bear", close)
+            f_draw_label("VAR-B", false, label_text)
+            f_log_data("VAR-B", false, close)
+
+    if i_runVarC and f_can_label("VAR-C")
+        if varC_bull_signal
+            string label_text = str.format("[VAR-C] {0,number,#.##} | CVD: Bull", close)
+            f_draw_label("VAR-C", true, label_text)
+            f_log_data("VAR-C", true, close)
+        if varC_bear_signal
+            string label_text = str.format("[VAR-C] {0,number,#.##} | CVD: Bear", close)
+            f_draw_label("VAR-C", false, label_text)
+            f_log_data("VAR-C", false, close)
+
+    if i_runVarD and f_can_label("VAR-D")
+        if varD_bull_signal
+            string label_text = str.format("[VAR-D] {0,number,#.##} | Simple: BULL", close)
+            f_draw_label("VAR-D", true, label_text)
+            f_log_data("VAR-D", true, close)
+        if varD_bear_signal
+            string label_text = str.format("[VAR-D] {0,number,#.##} | Simple: BEAR", close)
+            f_draw_label("VAR-D", false, label_text)
+            f_log_data("VAR-D", false, close)
