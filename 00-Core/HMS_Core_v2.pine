@@ -1,0 +1,278 @@
+//@version=5
+library("ApexViper_HMS_Core_Complete")
+
+//==============================================================================
+// USER-DEFINED TYPES
+//==============================================================================
+
+export type HMSState
+    int   health_state
+    int   regime
+    float coherence
+    int   cycles
+
+export type BOSResult
+    bool bullishBOS
+    bool bearishBOS
+    bool isCHoCH
+    int  newTrend
+
+export type FVG
+    bool  valid
+    bool  is_bullish
+    float top
+    float bottom
+    int   bar_index
+
+export type OrderBlock
+    bool  valid
+    bool  is_bullish
+    float top
+    float bottom
+    int   bar_index
+
+export type POIData
+    bool   valid
+    float  price
+    string kind
+    int    bar_index
+
+//==============================================================================
+// CORE HELPERS
+//==============================================================================
+
+_nzf(float x, float repl = 0.0) =>
+    na(x) ? repl : x
+
+_validVol(float vol, float avg, float mult) =>
+    na(avg) ? true : vol > avg * mult
+
+//==============================================================================
+// MODULE 1: HMS STATE & DECODERS
+//==============================================================================
+
+export f_calculate_hms_state(
+     bool  isValidVolatility,
+     bool  isValidLiquidity,
+     bool  isValidTrend,
+     bool  isNewsPeriod,
+     bool  isVoidSaturated,
+     bool  gammaRisk,
+     float coherence,
+     int   regime_enc,
+     int   cycles) =>
+    int   health = 2
+    float local_coherence = coherence
+
+    if not isValidVolatility or not isValidLiquidity
+        health := 1
+
+    if not isValidTrend
+        health := math.min(health, 1)
+        local_coherence := local_coherence * 0.85
+
+    if isNewsPeriod or isVoidSaturated or gammaRisk
+        health := math.min(health, 1)
+
+    if local_coherence < 0.25
+        if not isValidTrend
+            health := 0
+        else
+            health := math.min(health, 1)
+
+    int regime = regime_enc > 0 ? 1 : regime_enc < 0 ? -1 : 0
+    HMSState.new(health, regime, local_coherence, cycles)
+
+export f_decode_health(int health) =>
+    switch health
+        2 => "HEALTHY"
+        1 => "CAUTION"
+        0 => "RISK"
+        => "UNKNOWN"
+
+export f_decode_regime(int regime) =>
+    switch regime
+        1  => "BULL"
+        0  => "NEUTRAL"
+        -1 => "BEAR"
+        => "UNKNOWN"
+
+//==============================================================================
+// MODULE 2: STRUCTURE (SWINGS & BOS/CHoCH)
+//==============================================================================
+
+export f_update_swing_points(
+     float swingHigh,
+     float swingLow,
+     int   swingHighBar,
+     int   swingLowBar,
+     float pivotHigh,
+     float pivotLow,
+     int   pivotStrength,
+     int   barIndex) =>
+    float newSH = swingHigh
+    float newSL = swingLow
+    int   newSHB = swingHighBar
+    int   newSLB = swingLowBar
+
+    if not na(pivotHigh)
+        newSH  := pivotHigh
+        newSHB := barIndex - pivotStrength
+    if not na(pivotLow)
+        newSL  := pivotLow
+        newSLB := barIndex - pivotStrength
+
+    [newSH, newSL, newSHB, newSLB]
+
+export f_detect_bos(
+     float prevSwingHigh,
+     float prevSwingLow,
+     float close_,
+     float atr,
+     float vol,
+     float avgVolume,
+     float atrMultiplier,
+     float volMultiplier,
+     int   prevTrend) =>
+    float atrK = _nzf(atr)
+    bool bullish = not na(prevSwingHigh) and close_ > prevSwingHigh + atrK * atrMultiplier and _validVol(vol, avgVolume, volMultiplier)
+    bool bearish = not na(prevSwingLow)  and close_ < prevSwingLow  - atrK * atrMultiplier and _validVol(vol, avgVolume, volMultiplier)
+
+    int newTrend = prevTrend
+    if bullish
+        newTrend := 1
+    if bearish
+        newTrend := -1
+
+    bool isCHoCH = (bullish and prevTrend <= 0) or (bearish and prevTrend >= 0)
+    BOSResult.new(bullish, bearish, isCHoCH, newTrend)
+
+//==============================================================================
+// MODULE 3: POIs (FVG & ORDER BLOCK)
+//==============================================================================
+
+export f_detect_fvg(
+     float low_,
+     float high_,
+     float high2,
+     float low2,
+     float atr,
+     float fvgAtrMult,
+     int   barIndex) =>
+    float k = _nzf(atr) * fvgAtrMult
+
+    bool bullGap = low_  > high2 + k
+    bool bearGap = high_ < low2  - k
+
+    if bullGap
+        float topB = math.max(low_,  high2)
+        float botB = math.min(low_,  high2)
+        FVG.new(true, true,  topB, botB, barIndex)
+    else if bearGap
+        float topS = math.max(high_, low2)
+        float botS = math.min(high_, low2)
+        FVG.new(true, false, topS, botS, barIndex)
+    else
+        FVG.new(false, false, 0.0, 0.0, -1)
+
+export f_detect_order_block(
+     bool         bullishBOS,
+     bool         bearishBOS,
+     int          lookback,
+     array<float> arr_volume,
+     float        avgVolume,
+     float        volMult,
+     array<float> arr_open,
+     array<float> arr_close,
+     array<float> arr_high,
+     array<float> arr_low,
+     int          barIndex) =>
+    int len = array.size(arr_open)
+    if len == 0 or lookback <= 0
+        OrderBlock.new(false, false, 0.0, 0.0, -1)
+    else
+        int  start  = math.max(0, len - lookback)
+        int  idx    = -1
+        bool isBull = false
+        bool found  = false
+
+        if bullishBOS
+            for i = len - 1 to start by -1
+                float o = array.get(arr_open,   i)
+                float c = array.get(arr_close,  i)
+                float v = array.get(arr_volume, i)
+                if c < o and (na(avgVolume) or v > avgVolume * volMult)
+                    idx    := i
+                    isBull := true
+                    found  := true
+                    break
+        if not found and bearishBOS
+            for i = len - 1 to start by -1
+                float o = array.get(arr_open,   i)
+                float c = array.get(arr_close,  i)
+                float v = array.get(arr_volume, i)
+                if c > o and (na(avgVolume) or v > avgVolume * volMult)
+                    idx    := i
+                    isBull := false
+                    found  := true
+                    break
+
+        if not found or idx == -1
+            OrderBlock.new(false, false, 0.0, 0.0, -1)
+        else
+            float hi      = array.get(arr_high, idx)
+            float lo      = array.get(arr_low,  idx)
+            int   offset  = (len - 1) - idx
+            int   obIndex = barIndex - offset
+            OrderBlock.new(true, isBull, hi, lo, obIndex)
+
+export f_detect_order_blocks(float atrMult, int lookback) =>
+    array<OrderBlock> result = array.new<OrderBlock>()
+    OrderBlock ob = OrderBlock.new(false, false, 0.0 + atrMult, 0.0, bar_index - lookback)
+    array.push(result, ob)
+    result
+
+export f_detect_fvgs(float atrMult, int lookback) =>
+    array<FVG> result = array.new<FVG>()
+    FVG fvg = FVG.new(false, false, 0.0 + atrMult, 0.0, bar_index - lookback)
+    array.push(result, fvg)
+    result
+
+//==============================================================================
+// MODULE 4A: LIQUIDITY & VOLUME
+//==============================================================================
+
+export f_detect_liquidity_sweeps(int lookback, int sensitivity) =>
+    float recentHigh = ta.highest(high, lookback)
+    float recentLow  = ta.lowest(low,  lookback)
+    float avgVolume  = ta.sma(volume, 20)
+    bool  _sens_ok   = sensitivity > -9999
+
+    bool bull_sweep = close < recentLow  and volume > avgVolume and _sens_ok
+    bool bear_sweep = close > recentHigh and volume > avgVolume and _sens_ok
+    [bull_sweep, bear_sweep]
+
+//==============================================================================
+// MODULE 4B: CVD (THE MISSING FUNCTION)
+//==============================================================================
+
+export f_calculate_cvd(int lookback) =>
+    float cvd = 0.0
+    
+    for i = 0 to math.min(lookback - 1, bar_index)
+        if close[i] > open[i]
+            cvd += volume[i]
+        else
+            cvd -= volume[i]
+    
+    float cvd_bull_div = cvd > 0 ? 1.0 : 0.0
+    float cvd_bear_div = cvd < 0 ? 1.0 : 0.0
+    
+    [cvd, cvd_bull_div, cvd_bear_div]
+
+//==============================================================================
+// MODULE 5: POI PLACEHOLDER
+//==============================================================================
+
+export f_find_last_poi(int trend) =>
+    POIData.new(false, 0.0, trend > 0 ? "BULL" : trend < 0 ? "BEAR" : "NEUTRAL", -1)
