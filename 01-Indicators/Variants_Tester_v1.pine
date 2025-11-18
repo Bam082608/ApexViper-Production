@@ -1,7 +1,7 @@
 //@version=6
 indicator("ApexViper_HMS_Variants_Complete", overlay=true, max_labels_count=500)
 
-import Bam404/ApexViper_HMS_Core_Complete/1 as HMS
+import Bam404/ApexViper_HMS_Core_Complete/2 as HMS
 
 i_runMAIN = input.bool(true, "Run MAIN (Control)", group="Variants")
 i_runVarA = input.bool(true, "Run Variant A (Drop CVD)", group="Variants")
